@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Client Validation</title>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;padding:20px}
+      form{margin-bottom:20px}
+      input{margin-right:8px}
+      .err{color:#b00020}
+      .ok{color:#006400}
+    </style>
+  </head>
+  <body>
+    <h1>Client validation demo</h1>
+
+    <section>
+      <h2>/api/sum</h2>
+      <form id="sumForm">
+        <label>a: <input type="text" name="a" /></label>
+        <label>b: <input type="text" name="b" /></label>
+        <button type="submit">Send</button>
+      </form>
+      <div id="sumResult"></div>
+    </section>
+
+    <section>
+      <h2>/api/echo</h2>
+      <form id="echoForm">
+        <label>JSON body: <input type="text" name="body" placeholder='{"foo":123}' style="width:300px"/></label>
+        <button type="submit">Send</button>
+      </form>
+      <div id="echoResult"></div>
+    </section>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
