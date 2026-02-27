@@ -18,6 +18,15 @@ app.use(express.static(path.join(__dirname, 'public')));
 const { validateEcho, validateSum, validateRegister, validateLogin, handleValidationErrors } = require('./lib/validators');
 const { hashPassword, comparePassword } = require('./lib/auth');
 
+// mongoose + models
+const mongoose = require('mongoose');
+const User = require('./models/user');
+
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/myapp';
+mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => console.error('Mongo connection error:', err));
+
 // small helper to catch async errors
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
@@ -40,27 +49,25 @@ app.post('/api/echo', validateEcho, handleValidationErrors, (req, res) => {
   res.json({ received: req.body });
 });
 
-// simple in-memory user store for demo purposes
-const users = [];
-
 app.post('/api/register', validateRegister, handleValidationErrors, asyncHandler(async (req, res) => {
   const { username, password } = req.body;
-  const existing = users.find(u => u.username === username);
+  const existing = await User.findOne({ username });
   if (existing) {
     return res.status(400).json({ error: 'User already exists' });
   }
   const pwHash = await hashPassword(password);
-  users.push({ username, passwordHash: pwHash });
-  res.status(201).json({ ok: true, username });
+  const user = new User({ username, passwordHash: pwHash });
+  await user.save();
+  res.status(201).json({ ok: true, username: user.username });
 }));
 
 app.post('/api/login', validateLogin, handleValidationErrors, asyncHandler(async (req, res) => {
   const { username, password } = req.body;
-  const user = users.find(u => u.username === username);
+  const user = await User.findOne({ username });
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
   const ok = await comparePassword(password, user.passwordHash);
   if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
-  res.json({ ok: true, username });
+  res.json({ ok: true, username: user.username });
 }));
 
 // Example route with validation and async handler
