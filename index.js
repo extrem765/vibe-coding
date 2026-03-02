@@ -1,31 +1,21 @@
 // server.js
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const MONGO_URI = process.env.MONGO_URI;
+const { connectDB } = require('./lib/db');
 
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
-const path = require('path');
-// serve client files
-app.use(express.static(path.join(__dirname, 'public')));
-
 // validators
 const { validateEcho, validateSum, validateRegister, validateLogin, handleValidationErrors } = require('./lib/validators');
-const { hashPassword, comparePassword } = require('./lib/auth');
-
-// mongoose + models
-const mongoose = require('mongoose');
-const User = require('./models/user');
-
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/myapp';
-mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('Mongo connection error:', err));
+const { hashPassword, comparePassword, registerUser, loginUser, clearUsers } = require('./lib/auth');
 
 // small helper to catch async errors
 const asyncHandler = (fn) => (req, res, next) => {
@@ -51,22 +41,18 @@ app.post('/api/echo', validateEcho, handleValidationErrors, (req, res) => {
 
 app.post('/api/register', validateRegister, handleValidationErrors, asyncHandler(async (req, res) => {
   const { username, password } = req.body;
-  const existing = await User.findOne({ username });
-  if (existing) {
-    return res.status(400).json({ error: 'User already exists' });
+  try {
+    const user = await registerUser(username, password);
+    res.status(201).json({ ok: true, username: user.username });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
-  const pwHash = await hashPassword(password);
-  const user = new User({ username, passwordHash: pwHash });
-  await user.save();
-  res.status(201).json({ ok: true, username: user.username });
 }));
 
 app.post('/api/login', validateLogin, handleValidationErrors, asyncHandler(async (req, res) => {
   const { username, password } = req.body;
-  const user = await User.findOne({ username });
+  const user = await loginUser(username, password);
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-  const ok = await comparePassword(password, user.passwordHash);
-  if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
   res.json({ ok: true, username: user.username });
 }));
 
@@ -82,10 +68,14 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Not Found' });
 });
 
+// serve client files (placed after API routes so API endpoints take precedence)
+const path = require('path');
+app.use(express.static(path.join(__dirname, 'public')));
+
 // Global error handler
 app.use((err, req, res, next) => {
   const status = err.status || 500;
-  console.error(err && err.stack ? err.stack : err);
+  console.log(err && err.stack ? err.stack : err);
   res.status(status).json({ error: err.message || 'Internal Server Error', statusCode: status });
 });
 
@@ -93,7 +83,20 @@ app.use((err, req, res, next) => {
 module.exports = app;
 
 if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  (async () => {
+    try {
+      if (MONGO_URI) {
+        await connectDB(MONGO_URI);
+        console.log('Connected to MongoDB');
+      } else {
+        console.log('MONGO_URI not set; skipping MongoDB connection');
+      }
+    } catch (err) {
+      console.error('Failed to connect to MongoDB:', err.message || err);
+    }
+
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  })();
 }
