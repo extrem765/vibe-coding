@@ -28,3 +28,14 @@ Docker:
 docker build -t my-node-app .
 docker run -p 3000:3000 my-node-app
 ```
+
+Environment
+
+- Copy `.env.example` to `.env` and set `MONGO_URI`.
+
+Run locally with MongoDB:
+
+```bash
+npm install
+npm run dev
+```
