@@ -1,6 +1,14 @@
 // Client-side validation and fetch helpers
 const $ = (sel) => document.querySelector(sel);
 
+const cartRouter = require('./routes/cart');
+app.use('/cart', cartRouter);
+
+
+
+
+
+
 const sumForm = $('#sumForm');
 const sumResult = $('#sumResult');
 const echoForm = $('#echoForm');
