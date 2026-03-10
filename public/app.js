@@ -5,7 +5,15 @@ const cartRouter = require('./routes/cart');
 app.use('/cart', cartRouter);
 
 
+const session = require('express-session');
 
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'session_secret_change_me',
+  resave: false,
+  saveUninitialized: false,
+}));
+
+app.use('/cart', require('./routes/cart'));
 
 
 
