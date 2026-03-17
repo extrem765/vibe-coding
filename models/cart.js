@@ -5,8 +5,9 @@ const path = require('path');
 const fs = require('fs');
 
 const { authenticateToken } = require('./auth');
+const Cart = require('../models/cart');
 
-// ─── Логування (той самий підхід, що в auth.js) ───────────────────────────────
+// ─── Логування ────────────────────────────────────────────────────────────────
 
 const LOG_FILE = path.join(__dirname, 'errors.log');
 
@@ -23,60 +24,65 @@ function logError(context, error) {
   console.error(`[ERROR] [${context}]`, error.message);
 }
 
-// ─── Модель ───────────────────────────────────────────────────────────────────
+// ─── Валідація ────────────────────────────────────────────────────────────────
 
-const Cart = require('../models/cart');
+function isValidObjectId(id) {
+  return mongoose.Types.ObjectId.isValid(id);
+}
 
-// ─── Хелпер: отримати або створити кошик ─────────────────────────────────────
+function isValidQuantity(q) {
+  return Number.isInteger(q) && q >= 1;
+}
+
+// ─── Хелпери ──────────────────────────────────────────────────────────────────
 
 async function getOrCreateCart(username) {
-  let cart = await Cart.findOne({ username });
-  if (!cart) cart = await Cart.create({ username, items: [] });
+  return await Cart.findOne({ username }) ?? await Cart.create({ username, items: [] });
+}
+
+async function getCart(username, res) {
+  const cart = await Cart.findOne({ username });
+  if (!cart) res.status(404).json({ error: 'Cart not found' });
   return cart;
 }
 
-// ─── Маршрути (всі захищені authenticateToken) ────────────────────────────────
+function findItem(cart, productId) {
+  return cart.items.find((i) => i.productId.toString() === productId);
+}
 
-/**
- * GET /cart
- * Повертає поточний кошик користувача
- */
-router.get('/', authenticateToken, async (req, res) => {
+// ─── Middleware ───────────────────────────────────────────────────────────────
+
+// Всі маршрути захищені
+router.use(authenticateToken);
+
+// ─── Маршрути ─────────────────────────────────────────────────────────────────
+
+// GET /cart
+router.get('/', async (req, res) => {
   try {
-    const cart = await getOrCreateCart(req.user.username);
-    res.json(cart);
+    res.json(await getOrCreateCart(req.user.username));
   } catch (err) {
     logError('GET /cart', err);
     res.status(500).json({ error: 'Failed to get cart' });
   }
 });
 
-/**
- * POST /cart/items
- * Додає товар або збільшує кількість, якщо вже є
- * Body: { productId, name, price, quantity? }
- */
-router.post('/items', authenticateToken, async (req, res) => {
+// POST /cart/items
+router.post('/items', async (req, res) => {
   const { productId, name, price, quantity = 1 } = req.body;
 
-  if (!productId || !name || price == null) {
+  if (!productId || !name || price == null)
     return res.status(400).json({ error: 'productId, name and price are required' });
-  }
-  if (!mongoose.Types.ObjectId.isValid(productId)) {
+  if (!isValidObjectId(productId))
     return res.status(400).json({ error: 'Invalid productId' });
-  }
-  if (typeof price !== 'number' || price < 0) {
+  if (typeof price !== 'number' || price < 0)
     return res.status(400).json({ error: 'price must be a non-negative number' });
-  }
-  if (!Number.isInteger(quantity) || quantity < 1) {
+  if (!isValidQuantity(quantity))
     return res.status(400).json({ error: 'quantity must be a positive integer' });
-  }
 
   try {
     const cart = await getOrCreateCart(req.user.username);
-    const existing = cart.items.find(
-      (i) => i.productId.toString() === productId
-    );
+    const existing = findItem(cart, productId);
 
     if (existing) {
       existing.quantity += quantity;
@@ -92,27 +98,21 @@ router.post('/items', authenticateToken, async (req, res) => {
   }
 });
 
-/**
- * PATCH /cart/items/:productId
- * Оновлює кількість товару
- * Body: { quantity }
- */
-router.patch('/items/:productId', authenticateToken, async (req, res) => {
+// PATCH /cart/items/:productId
+router.patch('/items/:productId', async (req, res) => {
   const { productId } = req.params;
   const { quantity } = req.body;
 
-  if (!mongoose.Types.ObjectId.isValid(productId)) {
+  if (!isValidObjectId(productId))
     return res.status(400).json({ error: 'Invalid productId' });
-  }
-  if (!Number.isInteger(quantity) || quantity < 1) {
+  if (!isValidQuantity(quantity))
     return res.status(400).json({ error: 'quantity must be a positive integer' });
-  }
 
   try {
-    const cart = await Cart.findOne({ username: req.user.username });
-    if (!cart) return res.status(404).json({ error: 'Cart not found' });
+    const cart = await getCart(req.user.username, res);
+    if (!cart) return;
 
-    const item = cart.items.find((i) => i.productId.toString() === productId);
+    const item = findItem(cart, productId);
     if (!item) return res.status(404).json({ error: 'Item not found in cart' });
 
     item.quantity = quantity;
@@ -124,26 +124,21 @@ router.patch('/items/:productId', authenticateToken, async (req, res) => {
   }
 });
 
-/**
- * DELETE /cart/items/:productId
- * Видаляє товар з кошика
- */
-router.delete('/items/:productId', authenticateToken, async (req, res) => {
+// DELETE /cart/items/:productId
+router.delete('/items/:productId', async (req, res) => {
   const { productId } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(productId)) {
+  if (!isValidObjectId(productId))
     return res.status(400).json({ error: 'Invalid productId' });
-  }
 
   try {
-    const cart = await Cart.findOne({ username: req.user.username });
-    if (!cart) return res.status(404).json({ error: 'Cart not found' });
+    const cart = await getCart(req.user.username, res);
+    if (!cart) return;
 
     const before = cart.items.length;
     cart.items = cart.items.filter((i) => i.productId.toString() !== productId);
-    if (cart.items.length === before) {
+    if (cart.items.length === before)
       return res.status(404).json({ error: 'Item not found in cart' });
-    }
 
     await cart.save();
     res.json(cart);
@@ -153,14 +148,11 @@ router.delete('/items/:productId', authenticateToken, async (req, res) => {
   }
 });
 
-/**
- * DELETE /cart
- * Очищає весь кошик
- */
-router.delete('/', authenticateToken, async (req, res) => {
+// DELETE /cart
+router.delete('/', async (req, res) => {
   try {
-    const cart = await Cart.findOne({ username: req.user.username });
-    if (!cart) return res.status(404).json({ error: 'Cart not found' });
+    const cart = await getCart(req.user.username, res);
+    if (!cart) return;
 
     cart.items = [];
     await cart.save();
